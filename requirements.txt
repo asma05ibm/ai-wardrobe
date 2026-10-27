@@ -1,6 +1,7 @@
 
 streamlit
-pillow
 numpy
-torch
+Pillow
 transformers
+torch
+PyMuPDF
