@@ -106,35 +106,54 @@ def similarity(a, b):
 
 @st.cache_data(show_spinner=False)
 def extract_pdf_images(pdf_bytes):
-    """Extract separate embedded images from a PDF; render a page if it has no images."""
     import fitz
-    result, seen = [], set()
+
+    result = []
+    seen = set()
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-    for page_no, page in enumerate(doc):
-        found = False
-        for info in page.get_images(full=True):
-            try:
-                raw = doc.extract_image(info[0])["image"]
-                image = Image.open(io.BytesIO(raw)).convert("RGB")
-                out = io.BytesIO()
-                image.save(out, format="JPEG")
-                data = out.getvalue()
+
+    try:
+        total_pages = min(len(doc), 30)
+
+        for page_no in range(total_pages):
+            page = doc[page_no]
+            found = False
+
+            for info in page.get_images(full=True):
+                try:
+                    raw = doc.extract_image(info[0])["image"]
+                    with Image.open(io.BytesIO(raw)) as img:
+                        img = img.convert("RGB")
+                        out = io.BytesIO()
+                        img.save(out, format="JPEG", quality=80)
+                        data = out.getvalue()
+
+                    digest = hashlib.sha256(data).hexdigest()
+                    if digest not in seen:
+                        seen.add(digest)
+                        result.append(
+                            (f"PDF page {page_no + 1} image {len(result) + 1}.jpg", data)
+                        )
+                    found = True
+                except Exception:
+                    continue
+
+            if not found:
+                pix = page.get_pixmap(
+                    matrix=fitz.Matrix(0.8, 0.8), alpha=False
+                )
+                data = pix.tobytes("png")
                 digest = hashlib.sha256(data).hexdigest()
+
                 if digest not in seen:
                     seen.add(digest)
-                    result.append((f"PDF page {page_no + 1} image {len(result) + 1}.jpg", data))
-                found = True
-            except Exception:
-                continue
-        if not found:
-            pix = page.get_pixmap(matrix=fitz.Matrix(1.5, 1.5), alpha=False)
-            data = pix.tobytes("png")
-            digest = hashlib.sha256(data).hexdigest()
-            if digest not in seen:
-                seen.add(digest)
-                result.append((f"PDF page {page_no + 1}.png", data))
-    doc.close()
+                    result.append((f"PDF page {page_no + 1}.png", data))
+
+    finally:
+        doc.close()
+
     return result
+
 
 def add_uploads_to_pending(image_files, pdf_files):
     pending = []
